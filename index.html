@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Пошук інформації про медсестер та палати</title>
+    <meta charset="UTF-8"> <script>
+        function handleFormSubmit(event, form, responseFormat) {
+            event.preventDefault();
+
+            const formData = new FormData(form);
+            const queryType = formData.get('query_type');
+            const resultDivId = queryType + '-results';
+            const resultDiv = document.getElementById(resultDivId);
+
+            resultDiv.innerHTML = '';
+
+            if (responseFormat === 'json') {
+                fetch('search.php', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.text().then(text => { throw new Error('HTTP error! status: ' + response.status + ' - ' + text) });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    let html = '<h3>Чергування у зміну \'' + formData.get('shift_name') + '\':</h3>';
+                    if (data.length > 0) {
+                        html += '<table border="1"><thead><tr><th>Медсестра</th><th>Палата</th></tr></thead><tbody>';
+                        data.forEach(item => {
+                            html += '<tr><td>' + escapeHTML(item.nurse_name) + '</td><td>' + escapeHTML(item.ward_name) + '</td></tr>';
+                        });
+                        html += '</tbody></table>';
+                    } else {
+                        html += '<p>У зміну \'' + escapeHTML(formData.get('shift_name')) + '\' не знайдено чергувань.</p>';
+                    }
+                    resultDiv.innerHTML = html;
+                })
+                .catch(error => {
+                    console.error('Помилка:', error);
+                    resultDiv.innerHTML = '<p>Помилка при отриманні даних: ' + escapeHTML(error.message) + '</p>';
+                });
+
+            } else {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', 'search.php', true);
+
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        if (responseFormat === 'text') {
+                            resultDiv.innerHTML = xhr.responseText;
+                        } else if (responseFormat === 'xml') {
+                            const xmlDoc = xhr.responseXML;
+                            if (xmlDoc) {
+                                let html = '<h3>Медсестри відділення ' + escapeHTML(formData.get('department_name')) + ':</h3>';
+                                const nurses = xmlDoc.getElementsByTagName('nurse');
+                                if (nurses.length > 0) {
+                                    html += '<ul>';
+                                    for (let i = 0; i < nurses.length; i++) {
+                                        const name = nurses[i].getElementsByTagName('name')[0]?.textContent || 'N/A';
+                                        const shift = nurses[i].getElementsByTagName('shift')[0]?.textContent || 'N/A';
+                                        html += '<li>' + escapeHTML(name) + ' (Зміна: ' + escapeHTML(shift) + ')</li>';
+                                    }
+                                    html += '</ul>';
+                                } else {
+                                    html += '<p>У відділенні ' + escapeHTML(formData.get('department_name')) + ' не знайдено медсестер.</p>';
+                                }
+                                resultDiv.innerHTML = html;
+                            } else {
+                                resultDiv.innerHTML = '<p>Помилка: Отримано невалідний XML або порожню відповідь.</p>';
+                            }
+                        }
+                    } else {
+                        resultDiv.innerHTML = '<p>Помилка при отриманні даних. Статус: ' + xhr.status + '</p>';
+                        console.error('Помилка XHR:', xhr.status, xhr.statusText, xhr.responseText);
+                    }
+                };
+
+                xhr.onerror = function() {
+                    resultDiv.innerHTML = '<p>Помилка мережі при відправці запиту.</p>';
+                };
+
+                xhr.send(formData);
+            }
+        }
+
+        function escapeHTML(str) {
+            const div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        }
+
+
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelector('form input[value="wards_by_nurse"]').parentElement.addEventListener('submit', function(event) {
+                handleFormSubmit(event, this, 'text');
+            });
+
+            document.querySelector('form input[value="nurses_by_department"]').parentElement.addEventListener('submit', function(event) {
+                handleFormSubmit(event, this, 'xml');
+            });
+
+            document.querySelector('form input[value="duties_by_shift"]').parentElement.addEventListener('submit', function(event) {
+                handleFormSubmit(event, this, 'json');
+            });
+        });
+    </script>
+</head>
+<body>
+
+    <h1>Пошук у базі даних лікарні</h1>
+
+    <h2>Знайти палати для медсестри</h2>
+    <form action="search.php" method="post">
+        Ім'я медсестри: <input type="text" name="nurse_name"><br><br>
+        <input type="hidden" name="query_type" value="wards_by_nurse">
+        <input type="submit" value="Знайти палати">
+    </form>
+    <div id="wards_by_nurse-results"></div>
+
+    <hr>
+
+    <h2>Знайти медсестер за відділенням</h2>
+    <form action="search.php" method="post">
+        Назва відділення: <input type="text" name="department_name"><br><br>
+         <input type="hidden" name="query_type" value="nurses_by_department">
+        <input type="submit" value="Знайти медсестер">
+    </form>
+    <div id="nurses_by_department-results"></div>
+
+     <hr>
+
+    <h2>Знайти чергування за зміною</h2>
+    <form action="search.php" method="post">
+        Зміна (First, Second, Third): <input type="text" name="shift_name"><br><br>
+        <input type="hidden" name="query_type" value="duties_by_shift">
+        <input type="submit" value="Знайти чергування">
+    </form>
+    <div id="duties_by_shift-results"></div>
+
+</body>
+</html>
